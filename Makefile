@@ -6,7 +6,7 @@ serial:
 	g++ ${CFLAGS} src/serial/main.cpp -o serial
 
 #parallel:
-#	g++ ${CFLAGS} src/serial/main.cpp -o parallel_softmax
+#	g++ ${CFLAGS} src/serial/main.cpp -o parallel
 
 clean:
-	rm -rf *.o serial_softmax parallel_softmax 
+	rm -rf *.o serial parallel
