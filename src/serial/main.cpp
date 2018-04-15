@@ -19,6 +19,49 @@ uint8_t train_labels[40000];
 uint8_t test_set[2000][784];
 uint8_t test_labels[2000];
 
+void load_data() {
+  // 42001 rows × 785 columns
+  // First row represents column headers
+  // First column represents image labels
+  std::ifstream input_file;
+  input_file.open("train.csv");
+
+  std::string line;
+  getline(input_file, line);
+
+  //printf("%s\n", line.c_str());
+
+  for (int i = 0; i < 40000; i++) {
+    for (int j = 0; j < 784; j++) {
+      getline(input_file, line, ',');
+
+      if (j == 0) {
+        train_labels[i] = stoi(line);
+      } else {
+        train_set[i][j-1] = stoi(line);
+      }
+    }
+    getline(input_file, line);
+    train_set[i][783] = stoi(line);
+  }
+
+  for (int i = 0; i < 2000; i++) {
+    for (int j = 0; j < 784; j++) {
+      getline(input_file, line, ',');
+
+      if (j == 0) {
+        test_labels[i] = stoi(line);
+      } else {
+        test_set[i][j-1] = stoi(line);
+      }
+    }
+    getline(input_file, line);
+    test_set[i][783] = stoi(line);
+  }
+
+  input_file.close();
+}
+
 double* generate_weight_vector(int size) {
   double* w = new double[size];
 
@@ -57,48 +100,7 @@ void test() {
 
 
 int main(int argc, char *argv[]) {
-
-  // 42001 rows × 785 columns
-  // First row represents column headers
-  // First column represents image labels
-  std::ifstream input_file;
-  input_file.open("../train.csv");
-
-  std::string line;
-  getline(input_file, line);
-
-  //printf("%s\n", line.c_str());
-
-  for (int i = 0; i < 40000; i++) {
-    for (int j = 0; j < 784; j++) {
-      getline(input_file, line, ',');
-
-      if (j == 0) {
-        train_labels[i] = stoi(line);
-      } else {
-        train_set[i][j-1] = stoi(line);
-      }
-    }
-    getline(input_file, line);
-    train_set[i][783] = stoi(line);
-  }
-
-  for (int i = 0; i < 2000; i++) {
-    for (int j = 0; j < 784; j++) {
-      getline(input_file, line, ',');
-
-      if (j == 0) {
-        test_labels[i] = stoi(line);
-      } else {
-        test_set[i][j-1] = stoi(line);
-      }
-    }
-    getline(input_file, line);
-    test_set[i][783] = stoi(line);
-  }
-
-  input_file.close();
-
+  load_data();
   sgd();
 
   // for (int i = 0; i < 42; i++) {
