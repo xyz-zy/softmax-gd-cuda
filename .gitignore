@@ -32,3 +32,6 @@
 *.app
 serial
 parallel
+
+# IDE and text editor files
+.vscode
