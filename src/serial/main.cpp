@@ -68,8 +68,6 @@ void load_data() {
 double* generate_weight_vector(int size) {
   double* w = new double[size];
 
-  std::srand(std::time(nullptr));
-
   for(int i = 0; i < size; i++) {
     w[i] = (double) std::rand() / RAND_MAX;
   }
@@ -108,13 +106,13 @@ uint8_t predict(int num_classes, int num_features, double** weight_vectors, uint
 
 void update_weights(double** weight_vectors, uint8_t* features, uint8_t label) {
   double* probabilities = new double[10];
-  double min_product = DBL_MAX;
+  double max_product = DBL_MIN;
 
   for (int i = 0; i < 10; i++) {
     double product = inner_product(784, weight_vectors[i], features);
     probabilities[i] = product;
-    if (product < min_product) {
-      min_product = product;
+    if (product > max_product) {
+      max_product = product;
     }
   } 
 
@@ -122,7 +120,7 @@ void update_weights(double** weight_vectors, uint8_t* features, uint8_t label) {
   double sum = 0;
 
   for (int i = 0; i < 10; i++) {
-    probabilities[i] = std::exp(probabilities[i] - min_product);
+    probabilities[i] = std::exp(probabilities[i] - max_product);
     sum += probabilities[i];
   }
 
@@ -133,7 +131,7 @@ void update_weights(double** weight_vectors, uint8_t* features, uint8_t label) {
 
   // Update weight vectors.
   for (int i = 0; i < 10; i++) {
-    int y = (i == label) ? 1 : 0;
+    double y = (i == label) ? 1 : 0;
     for (int j = 0; j < 784; j++) {
       weight_vectors[i][j] += (y - probabilities[i]) * features[j];
     }
@@ -141,9 +139,8 @@ void update_weights(double** weight_vectors, uint8_t* features, uint8_t label) {
 
 }
 
-void sgd() {
+double** train() {
   // Generate random weight vector (784).
-
   double** weight_vectors = generate_k_weight_vectors(10 /* k */, 784 /* vector size */);
 
   for (int i = 0; i < 10; i++) {
@@ -163,20 +160,34 @@ void sgd() {
     //uint8_t prediction = predict(10, 784, weight_vectors, train_set[i]);
     update_weights(weight_vectors, train_set[i], train_labels[i]);
   }
+
+  return weight_vectors;
 }
 
-void test() {
+double test(double** weight_vectors) {
   // For each training point, generate prediction.
+  int correct = 0;
+  for (int i = 0; i < TEST_SIZE; i++) {
+    uint8_t prediction = predict(10, 784, weight_vectors, test_set[i]);
+    correct += (prediction == test_labels[i]);
+  }
 
   // Compute total accuracy.
+  double accuracy = (double) correct / TEST_SIZE;
+  return accuracy;
 }
 
 
 int main(int argc, char *argv[]) {
+  std::srand(std::time(nullptr));
+
   load_data();
-  sgd();
-  // TODO: Antony Yun
-  test();
+
+  double** weight_vectors = generate_k_weight_vectors(10 /* k */, 784 /* vector size */);
+  printf("%f\n", test(weight_vectors));
+
+  weight_vectors = train();
+  printf("%f\n", test(weight_vectors));
 
   // for (int i = 0; i < 42; i++) {
   //   for (int j = 0; j < 784; j++) {
