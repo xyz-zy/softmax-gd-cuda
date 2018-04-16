@@ -106,7 +106,7 @@ uint8_t predict(int num_classes, int num_features, double** weight_vectors, uint
   return label; 
 }
 
-void update_gradients(double** weight_vectors, uint8_t* features, uint8_t label) {
+void update_weights(double** weight_vectors, uint8_t* features, uint8_t label) {
   double* probabilities = new double[10];
   double min_product = DBL_MAX;
 
@@ -122,7 +122,8 @@ void update_gradients(double** weight_vectors, uint8_t* features, uint8_t label)
   double sum = 0;
 
   for (int i = 0; i < 10; i++) {
-    sum += std::exp(probabilities[i] - min_product);
+    probabilities[i] = std::exp(probabilities[i] - min_product);
+    sum += probabilities[i];
   }
 
   // Calculate probabilities.
@@ -143,7 +144,7 @@ void update_gradients(double** weight_vectors, uint8_t* features, uint8_t label)
 void sgd() {
   // Generate random weight vector (784).
 
-  double** weight_vectors = generate_k_weight_vectors(10, 784);
+  double** weight_vectors = generate_k_weight_vectors(10 /* k */, 784 /* vector size */);
 
   for (int i = 0; i < 10; i++) {
     for (int j = 0; j < 784; j++) {
@@ -155,13 +156,12 @@ void sgd() {
   }
 
   // For each training point:
-  // 1. Generate prediction.
-  // 2. Calculate gradient.
-  // 3. Update weight vector.
+  // 1. Calculate gradient.
+  // 2. Update weight vector.
   // Continue through entire dataset.
   for (int i = 0; i < TRAIN_SIZE; i++) {
     //uint8_t prediction = predict(10, 784, weight_vectors, train_set[i]);
-    update_gradients(weight_vectors, train_set[i], train_labels[i]);
+    update_weights(weight_vectors, train_set[i], train_labels[i]);
   }
 }
 
