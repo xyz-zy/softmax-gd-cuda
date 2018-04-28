@@ -164,14 +164,6 @@ double** train(Dataset* ds) {
   // Generate random weight vector (784).
   double** weight_vectors = generate_k_weight_vectors(ds->nClasses, ds->nFeatures);
   printf("%f\n", test(ds, weight_vectors));
-  for (int i = 0; i < ds->nClasses; i++) {
-    for (int j = 0; j < ds->nFeatures; j++) {
-      //printf("%f ", weight[i]);
-      if (weight_vectors[i][j] <= 0 || weight_vectors[i][j] >= 1) {
-        printf("INVALID WEIGHT");
-      }
-    }
-  }
 
   // For each training point:
   // 1. Calculate gradient.
@@ -206,11 +198,4 @@ int main(int argc, char *argv[]) {
 
   double** weight_vectors = train(ds);
   printf("%f\n", test(ds, weight_vectors));
-
-  // for (int i = 0; i < 42; i++) {
-  //   for (int j = 0; j < 784; j++) {
-  //     printf("%d ", dataset[i][j]);
-  //   }
-  //   printf("\n");
-  // }
 }

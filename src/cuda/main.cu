@@ -127,19 +127,13 @@ uint8_t predict(int num_classes, int num_features, double** weight_vectors, uint
 
 __global__ void cuda_update_weights(int len, double* w, uint8_t* f, uint8_t label,
     double* probabilities, double* max, double* total) {
-  //if (threadIdx.x == 1) {
-  //  for (int i = 0; i < 10; i++) {
-  //    printf("%f ", w[i + threadIdx.x * len]);
-  //  }
-  //}
-  int offset = threadIdx.x * len;
+  int offset = threadIdx.x * len;      
   double probability = 0;
+
   for (int i = 0; i < len; i++) {
     probability += w[i + offset] * f[i];
   }
   probabilities[threadIdx.x] = probability;
-  //d_prod[threadIdx.x] = sum;
-  //atomicMax(max, probability);
   __syncthreads();
 
   if (threadIdx.x == 0) {
@@ -150,7 +144,6 @@ __global__ void cuda_update_weights(int len, double* w, uint8_t* f, uint8_t labe
         *max = probabilities[i];
       }
     }
-    //printf("max: %f\n", *max);
   }
   __syncthreads();
 
@@ -159,25 +152,12 @@ __global__ void cuda_update_weights(int len, double* w, uint8_t* f, uint8_t labe
 
   __syncthreads();
 
-  probability /= *total; 
+  probability /= *total;
 
   double y = (threadIdx.x == label) ? 1 : 0;
   for (int i = 0; i < len; i++) {
-    if (threadIdx.x == 1 && f[i] != 0) {
-      printf("%d old: %.4f prob: %.4f f[i]: %d ", i, w[i+offset], probability, f[i]);
-    }
     w[i + offset] += (y - probability) * f[i];
-    if (threadIdx.x == 1 && f[i] != 0) {
-      printf("new: %.4f\n", w[i+offset]);
-    }
   }
-
-  __syncthreads();
-  if (threadIdx.x == 0) {
-    *max = DBL_MIN;
-    *total = 0;
-  }
-
 }
 
 double test(Dataset*, double**);
@@ -186,15 +166,6 @@ double** train(Dataset* ds) {
   // Generate random weight vector (784).
   double** weight_vectors = generate_k_weight_vectors(ds->nClasses, ds->nFeatures);
   printf("%f\n", test(ds, weight_vectors));
-  for (int i = 0; i < ds->nClasses; i++) {
-    for (int j = 0; j < ds->nFeatures; j++) {
-      //if (i == 1 && j < 10) printf("%f ", weight_vectors[i][j]);
-      if (weight_vectors[i][j] <= 0 || weight_vectors[i][j] >= 1) {
-        printf("INVALID WEIGHT");
-      }
-    }
-  }
-  printf("\n");
 
   // Malloc weight vectors and dataset arrays on GPU
   double* d_weight_vectors;
@@ -211,10 +182,6 @@ double** train(Dataset* ds) {
     cudaMemcpy(d_train_set + offset, ds->train_set[i],
         ds->nFeatures * sizeof(uint8_t), cudaMemcpyHostToDevice);
   }
-  /*uint8_t* d_train_labels;
-  cudaMalloc(&d_train_labels, ds->train_size * sizeof(uint8_t));
-  cudaMemcpy(d_train_labels, ds->train_labels, ds->train_size * sizeof(uint8_t),
-    cudaMemcpyHostToDevice);*/
 
   double* probabilities;
   cudaMalloc(&probabilities, ds->nClasses * sizeof(double));
@@ -228,23 +195,15 @@ double** train(Dataset* ds) {
   // 1. Calculate gradient.
   // 2. Update weight vector.
   // Continue through entire dataset.
-  for (int i = 0; i < 1/*ds->train_size*/; i++) {
-    cuda_update_weights<<<1, ds->nClasses>>>(ds->nFeatures, d_weight_vectors, &d_train_set[i], 
+  for (int i = 0; i < ds->train_size; i++) {
+    cuda_update_weights<<<1, ds->nClasses>>>(ds->nFeatures, d_weight_vectors, &d_train_set[i * ds->nFeatures], 
       ds->train_labels[i], probabilities, max, total);
-    //uint8_t prediction = predict(10, 784, weight_vectors, train_set[i]);
-    //update_weights(ds, weight_vectors, ds->train_set[i], ds->train_labels[i]);
   }
 
   for (int i = 0; i < ds->nClasses; i++) {
     int offset = i * ds->nFeatures;
     cudaMemcpy(weight_vectors[i], d_weight_vectors + offset,
       ds->nFeatures * sizeof(double), cudaMemcpyDeviceToHost);
-  }
-
-  for (int i = 0; i < ds->nFeatures; i++) {
-    if(ds->train_set[0][i] != 0) {
-      printf("%d: %.4f\n", i, weight_vectors[1][i]);
-    }
   }
 
   return weight_vectors;
@@ -270,11 +229,4 @@ int main(int argc, char *argv[]) {
 
   double** weight_vectors = train(ds);
   printf("%f\n", test(ds, weight_vectors));
-
-  // for (int i = 0; i < 42; i++) {
-  //   for (int j = 0; j < 784; j++) {
-  //     printf("%d ", dataset[i][j]);
-  //   }
-  //   printf("\n");
-  // }
 }
