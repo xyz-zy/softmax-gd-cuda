@@ -125,13 +125,13 @@ uint8_t predict(int num_classes, int num_features, double** weight_vectors, uint
   return label; 
 }
 
-__global__ void cuda_update_weights(int len, double* w, uint8_t* f, uint8_t label,
+__global__ void cuda_update_weights(int num_features, double* weight_vector, uint8_t* features, uint8_t label,
     double* probabilities, double* max, double* total) {
-  int offset = threadIdx.x * len;      
+  int offset = threadIdx.x * num_features;      
   double probability = 0;
 
-  for (int i = 0; i < len; i++) {
-    probability += w[i + offset] * f[i];
+  for (int i = 0; i < num_features; i++) {
+    probability += weight_vector[i + offset] * features[i];
   }
   probabilities[threadIdx.x] = probability;
   __syncthreads();
@@ -155,8 +155,8 @@ __global__ void cuda_update_weights(int len, double* w, uint8_t* f, uint8_t labe
   probability /= *total;
 
   double y = (threadIdx.x == label) ? 1 : 0;
-  for (int i = 0; i < len; i++) {
-    w[i + offset] += (y - probability) * f[i];
+  for (int i = 0; i < num_features; i++) {
+    weight_vector[i + offset] += (y - probability) * features[i];
   }
 }
 
