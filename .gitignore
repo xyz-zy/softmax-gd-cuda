@@ -31,7 +31,7 @@
 *.out
 *.app
 serial
-parallel
+cuda
 
 # IDE and text editor files
 .vscode
