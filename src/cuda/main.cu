@@ -125,32 +125,54 @@ uint8_t predict(int num_classes, int num_features, double** weight_vectors, uint
   return label; 
 }
 
+// Call with <<<num_classes, power of 2 less than num_features>>>
+__global__ void cuda_compute_probabilities(double* probabilities, double* temp,
+    double* weight_vectors, uint8_t* features, int num_features) {  
+  int offset = num_features * blockIdx.x;
+  int tid = threadIdx.x;
+  int val = weight_vectors[offset + tid] * features[tid];
+  if (blockDim.x + tid < num_features) {
+    val += weight_vectors[offset + tid + blockDim.x] * features[tid + blockDim.x];
+  }
+  temp[offset + tid] = val;
+  __syncthreads();
+
+  for (int step = blockDim.x/2; step > 0; step >>= 1) {
+    if (tid < step) {
+      temp[offset + tid] += temp[offset + tid + step];
+      temp[offset + tid + step] = -1;
+    } 
+    __syncthreads();
+  }
+
+  if (tid == 0) {
+    probabilities[blockIdx.x] = temp[offset];
+  }
+}
+
+// Call with <<<1,1>>>
+__global__ void cuda_find_max(int len, double* array, double* max, double* total) {
+  double tmp_max = DBL_MIN;
+  double tmp_total = 0;
+  for (int i = 0; i < len; i++) {
+    if (array[i] > tmp_max) {
+      tmp_max = array[i];
+    }
+  }
+  *max = tmp_max;
+
+  for (int i = 0; i < len; i++) {
+    array[i] = exp(array[i] - tmp_max);
+    tmp_total += array[i];
+  }
+
+  *total = tmp_total;
+}
+
 __global__ void cuda_update_weights(int num_features, double* weight_vector, uint8_t* features, uint8_t label,
     double* probabilities, double* max, double* total) {
   int offset = threadIdx.x * num_features;      
-  double probability = 0;
-
-  for (int i = 0; i < num_features; i++) {
-    probability += weight_vector[i + offset] * features[i];
-  }
-  probabilities[threadIdx.x] = probability;
-  __syncthreads();
-
-  if (threadIdx.x == 0) {
-    *max = DBL_MIN;
-    *total = 0;
-    for (int i = 0; i < blockDim.x; i++) {
-      if (probabilities[i] > *max) {
-        *max = probabilities[i];
-      }
-    }
-  }
-  __syncthreads();
-
-  probability = exp(probability - *max);
-  atomicAdd(total, probability);
-
-  __syncthreads();
+  double probability = probabilities[threadIdx.x];
 
   probability /= *total;
 
@@ -169,7 +191,9 @@ double** train(Dataset* ds) {
 
   // Malloc weight vectors and dataset arrays on GPU
   double* d_weight_vectors;
+  double* d_reduce;
   cudaMalloc(&d_weight_vectors, ds->nClasses * ds->nFeatures * sizeof(double));
+  cudaMalloc(&d_reduce, ds->nClasses * ds->nFeatures * sizeof(double));
   for (int i = 0; i < ds->nClasses; i++) {
     int offset = i * ds->nFeatures;
     cudaMemcpy(d_weight_vectors + offset, weight_vectors[i], 
@@ -195,7 +219,10 @@ double** train(Dataset* ds) {
   // 1. Calculate gradient.
   // 2. Update weight vector.
   // Continue through entire dataset.
+  int powerof2 = (int)pow(2, (int)log2((float)ds->nFeatures));
   for (int i = 0; i < ds->train_size; i++) {
+    cuda_compute_probabilities<<<ds->nClasses, powerof2>>>(probabilities, d_reduce, d_weight_vectors, &d_train_set[i * ds->nFeatures], ds->nFeatures);
+    cuda_find_max<<<1,1>>>(ds->nClasses, probabilities, max, total);
     cuda_update_weights<<<1, ds->nClasses>>>(ds->nFeatures, d_weight_vectors, &d_train_set[i * ds->nFeatures], 
       ds->train_labels[i], probabilities, max, total);
   }
