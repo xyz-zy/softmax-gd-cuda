@@ -171,15 +171,13 @@ __global__ void cuda_find_max(int len, double* array, double* max, double* total
 
 __global__ void cuda_update_weights(int num_features, double* weight_vector, uint8_t* features, uint8_t label,
     double* probabilities, double* max, double* total) {
-  int offset = threadIdx.x * num_features;      
-  double probability = probabilities[threadIdx.x];
+  int offset = blockIdx.x * num_features + threadIdx.x;
+  double probability = probabilities[blockIdx.x];
 
   probability /= *total;
 
-  double y = (threadIdx.x == label) ? 1 : 0;
-  for (int i = 0; i < num_features; i++) {
-    weight_vector[i + offset] += (y - probability) * features[i];
-  }
+  double y = (blockIdx.x == label) ? 1 : 0;
+  weight_vector[offset] += (y - probability) * features[threadIdx.x];
 }
 
 double test(Dataset*, double**);
@@ -227,7 +225,7 @@ double** train(Dataset* ds) {
   for (int i = 0; i < ds->train_size; i++) {
     cuda_compute_probabilities<<<ds->nClasses, powerof2, shared_mem_size>>>(probabilities, d_weight_vectors, &d_train_set[i * ds->nFeatures], ds->nFeatures);
     cuda_find_max<<<1,1>>>(ds->nClasses, probabilities, max, total);
-    cuda_update_weights<<<1, ds->nClasses>>>(ds->nFeatures, d_weight_vectors, &d_train_set[i * ds->nFeatures], 
+    cuda_update_weights<<<ds->nClasses, ds->nFeatures>>>(ds->nFeatures, d_weight_vectors, &d_train_set[i * ds->nFeatures],
       ds->train_labels[i], probabilities, max, total);
   }
 
