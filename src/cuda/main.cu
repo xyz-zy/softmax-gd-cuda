@@ -126,27 +126,27 @@ uint8_t predict(int num_classes, int num_features, double** weight_vectors, uint
 }
 
 // Call with <<<num_classes, power of 2 less than num_features>>>
-__global__ void cuda_compute_probabilities(double* probabilities, double* temp,
-    double* weight_vectors, uint8_t* features, int num_features) {  
+__global__ void cuda_compute_probabilities(double* probabilities, double* weight_vectors, uint8_t* features, int num_features) {  
+  extern __shared__ double temp[];
   int offset = num_features * blockIdx.x;
   int tid = threadIdx.x;
   int val = weight_vectors[offset + tid] * features[tid];
   if (blockDim.x + tid < num_features) {
     val += weight_vectors[offset + tid + blockDim.x] * features[tid + blockDim.x];
   }
-  temp[offset + tid] = val;
+  temp[tid] = val;
   __syncthreads();
 
   for (int step = blockDim.x/2; step > 0; step >>= 1) {
     if (tid < step) {
-      temp[offset + tid] += temp[offset + tid + step];
-      temp[offset + tid + step] = -1;
+      temp[tid] += temp[tid + step];
+      temp[tid + step] = -1;
     } 
     __syncthreads();
   }
 
   if (tid == 0) {
-    probabilities[blockIdx.x] = temp[offset];
+    probabilities[blockIdx.x] = temp[0];
   }
 }
 
@@ -191,9 +191,7 @@ double** train(Dataset* ds) {
 
   // Malloc weight vectors and dataset arrays on GPU
   double* d_weight_vectors;
-  double* d_reduce;
   cudaMalloc(&d_weight_vectors, ds->nClasses * ds->nFeatures * sizeof(double));
-  cudaMalloc(&d_reduce, ds->nClasses * ds->nFeatures * sizeof(double));
   for (int i = 0; i < ds->nClasses; i++) {
     int offset = i * ds->nFeatures;
     cudaMemcpy(d_weight_vectors + offset, weight_vectors[i], 
@@ -215,23 +213,36 @@ double** train(Dataset* ds) {
   double* total;
   cudaMalloc(&total, sizeof(double));
 
+  cudaEvent_t start, stop;
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
+  cudaEventRecord(start);
+
   // For each training point:
   // 1. Calculate gradient.
   // 2. Update weight vector.
   // Continue through entire dataset.
   int powerof2 = (int)pow(2, (int)log2((float)ds->nFeatures));
+  int shared_mem_size = powerof2 * sizeof(double);
   for (int i = 0; i < ds->train_size; i++) {
-    cuda_compute_probabilities<<<ds->nClasses, powerof2>>>(probabilities, d_reduce, d_weight_vectors, &d_train_set[i * ds->nFeatures], ds->nFeatures);
+    cuda_compute_probabilities<<<ds->nClasses, powerof2, shared_mem_size>>>(probabilities, d_weight_vectors, &d_train_set[i * ds->nFeatures], ds->nFeatures);
     cuda_find_max<<<1,1>>>(ds->nClasses, probabilities, max, total);
     cuda_update_weights<<<1, ds->nClasses>>>(ds->nFeatures, d_weight_vectors, &d_train_set[i * ds->nFeatures], 
       ds->train_labels[i], probabilities, max, total);
   }
+
+  cudaEventRecord(stop);
 
   for (int i = 0; i < ds->nClasses; i++) {
     int offset = i * ds->nFeatures;
     cudaMemcpy(weight_vectors[i], d_weight_vectors + offset,
       ds->nFeatures * sizeof(double), cudaMemcpyDeviceToHost);
   }
+
+  float duration;
+  cudaDeviceSynchronize();
+  cudaEventElapsedTime(&duration, start, stop);
+  printf("train duration: %f ms\n", duration);
 
   return weight_vectors;
 }
