@@ -9,6 +9,7 @@
 
 
 #include <ctime> // time()
+#include <chrono>
 #include <cfloat> // DBL_MAX
 #include <limits> // FLT_MAX, DBL_MAX
 #include <cmath> // pow()
@@ -16,7 +17,7 @@
 #define TRAIN_SIZE 40000
 #define TEST_SIZE 2000
 
-typedef struct {
+struct Dataset {
   uint8_t** train_set;
   uint8_t** test_set;
   uint8_t* train_labels;
@@ -25,7 +26,13 @@ typedef struct {
   int test_size;
   int nFeatures;
   int nClasses;
-} Dataset; 
+
+  ~Dataset() {
+
+  }
+};
+
+Dataset* preprocess_data(Dataset*);
 
 Dataset* load_data() {
   // Initialize data set
@@ -83,6 +90,47 @@ Dataset* load_data() {
   }  
 
   input_file.close();
+
+  ds = preprocess_data(ds);
+
+  return ds;
+}
+
+void double_features(int new_feature_size, int old_feature_size, uint8_t* new_features, uint8_t* old_features) {
+  for (int i = 0; i < old_feature_size; i++) {
+    new_features[i] = new_features[i + old_feature_size] = old_features[i];
+  }
+}
+
+Dataset* preprocess_data(Dataset* data) {
+  Dataset* ds = new Dataset();
+  ds->train_size = data->train_size;
+  ds->test_size = data->test_size;
+  ds->nFeatures = data->nFeatures * 2;
+  ds->nClasses = data->nClasses;
+
+  ds->train_set = new uint8_t*[ds->train_size];
+  for(int i = 0; i < ds->train_size; i++) {
+    ds->train_set[i] = new uint8_t[ds->nFeatures];
+    double_features(ds->nFeatures, data->nFeatures, ds->train_set[i], data->train_set[i]);
+    delete data->train_set[i];
+  }
+  delete data->train_set;
+
+  ds->train_labels = data->train_labels;
+
+  ds->test_set = new uint8_t*[ds->test_size];
+  for(int i = 0; i < ds->test_size; i++) {
+    ds->test_set[i] = new uint8_t[ds->nFeatures];
+    double_features(ds->nFeatures, data->nFeatures, ds->test_set[i], data->test_set[i]);
+    delete data->test_set[i];
+  }
+  delete data->test_set;
+
+  ds->test_labels = data->test_labels;
+
+  delete data;
+
   return ds;
 }
 
@@ -165,6 +213,8 @@ double** train(Dataset* ds) {
   double** weight_vectors = generate_k_weight_vectors(ds->nClasses, ds->nFeatures);
   printf("%f\n", test(ds, weight_vectors));
 
+  auto start = std::chrono::high_resolution_clock::now();
+
   // For each training point:
   // 1. Calculate gradient.
   // 2. Update weight vector.
@@ -173,6 +223,11 @@ double** train(Dataset* ds) {
     //uint8_t prediction = predict(10, 784, weight_vectors, train_set[i]);
     update_weights(ds, weight_vectors, ds->train_set[i], ds->train_labels[i]);
   }
+
+
+  auto elapsed = std::chrono::high_resolution_clock::now() - start;
+  long long milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+  printf("%llu ms\n", milliseconds);
 
   return weight_vectors;
 }

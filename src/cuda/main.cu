@@ -16,7 +16,7 @@
 #define TRAIN_SIZE 40000
 #define TEST_SIZE 2000
 
-typedef struct {
+struct Dataset {
   uint8_t** train_set;
   uint8_t** test_set;
   uint8_t* train_labels;
@@ -25,7 +25,13 @@ typedef struct {
   int test_size;
   int nFeatures;
   int nClasses;
-} Dataset; 
+
+  ~Dataset() {
+
+  }
+};
+
+Dataset* preprocess_data(Dataset*);
 
 Dataset* load_data() {
   // Initialize data set
@@ -83,6 +89,64 @@ Dataset* load_data() {
   }  
 
   input_file.close();
+  return ds;
+}
+
+
+void double_features(int new_feature_size, int old_feature_size, uint8_t* new_features, uint8_t* old_features) {
+  for (int i = 0; i < old_feature_size; i++) {
+    new_features[i] = new_features[i + old_feature_size] = old_features[i];
+  }
+}
+
+int 2d_to_1d(int x, int y) {
+  return x * 28 + y;
+}
+
+void count_connected_components(int new_feature_size, int old_feature_size, uint8_t* new_features, uint8_t* old_features) {
+  bool** arr = new bool[28][28];
+  int connected_components = 0;
+
+  for (int x = 0; x < 28; x++) {
+    for (int y = 0; y < 28; y++) {
+      if (!arr[x][y]) {
+        //
+      }
+    }
+  }
+
+  delete arr;
+}
+
+Dataset* preprocess_data(Dataset* data) {
+  Dataset* ds = new Dataset();
+  ds->train_size = data->train_size;
+  ds->test_size = data->test_size;
+  ds->nFeatures = data->nFeatures * 2;
+  ds->nClasses = data->nClasses;
+
+  ds->train_set = new uint8_t*[ds->train_size];
+  for(int i = 0; i < ds->train_size; i++) {
+    ds->train_set[i] = new uint8_t[ds->nFeatures];
+    double_features(ds->nFeatures, data->nFeatures, ds->train_set[i], data->train_set[i]);
+    delete data->train_set[i];
+  }
+  delete data->train_set;
+
+  ds->train_labels = data->train_labels;
+
+  ds->test_set = new uint8_t*[ds->test_size];
+  for(int i = 0; i < ds->test_size; i++) {
+    ds->test_set[i] = new uint8_t[ds->nFeatures];
+    double_features(ds->nFeatures, data->nFeatures, ds->test_set[i], data->test_set[i]);
+    delete data->test_set[i];
+  }
+  delete data->test_set;
+
+  ds->test_labels = data->test_labels;
+
+  delete data;
+
   return ds;
 }
 
@@ -152,6 +216,8 @@ __global__ void cuda_compute_probabilities(double* probabilities, double* weight
 
 // Call with <<<1,1>>>
 __global__ void cuda_find_max(int len, double* array, double* max, double* total) {
+
+
   double tmp_max = DBL_MIN;
   double tmp_total = 0;
   for (int i = 0; i < len; i++) {
@@ -179,6 +245,13 @@ __global__ void cuda_update_weights(int num_features, double* weight_vector, uin
   double y = (blockIdx.x == label) ? 1 : 0;
   weight_vector[offset] += (y - probability) * features[threadIdx.x];
 }
+
+
+int greatest_pow2(int n) {
+  return (int)pow(2, (int)log2((float)n));
+
+}
+
 
 double test(Dataset*, double**);
 
@@ -220,11 +293,12 @@ double** train(Dataset* ds) {
   // 1. Calculate gradient.
   // 2. Update weight vector.
   // Continue through entire dataset.
-  int powerof2 = (int)pow(2, (int)log2((float)ds->nFeatures));
+  int powerof2 = greatest_pow2(ds->nFeatures);//(int)pow(2, (int)log2((float)ds-> n));
   int shared_mem_size = powerof2 * sizeof(double);
+
   for (int i = 0; i < ds->train_size; i++) {
     cuda_compute_probabilities<<<ds->nClasses, powerof2, shared_mem_size>>>(probabilities, d_weight_vectors, &d_train_set[i * ds->nFeatures], ds->nFeatures);
-    cuda_find_max<<<1,1>>>(ds->nClasses, probabilities, max, total);
+    cuda_find_max<<<1, 1>>>(ds->nClasses, probabilities, max, total);
     cuda_update_weights<<<ds->nClasses, ds->nFeatures>>>(ds->nFeatures, d_weight_vectors, &d_train_set[i * ds->nFeatures],
       ds->train_labels[i], probabilities, max, total);
   }
