@@ -31,6 +31,7 @@ struct Dataset {
   }
 };
 
+
 Dataset* preprocess_data(Dataset*);
 
 Dataset* load_data() {
@@ -89,46 +90,80 @@ Dataset* load_data() {
   }  
 
   input_file.close();
+  ds = preprocess_data(ds);
   return ds;
 }
 
-
-void double_features(int new_feature_size, int old_feature_size, uint8_t* new_features, uint8_t* old_features) {
+void expand_features(int factor, int new_feature_size, int old_feature_size, uint8_t* new_features, uint8_t* old_features) {
   for (int i = 0; i < old_feature_size; i++) {
-    new_features[i] = new_features[i + old_feature_size] = old_features[i];
+    for (int j = 0; j < factor; j++) {
+      new_features[i * factor + j] = old_features[i];
+    }
   }
 }
 
-int 2d_to_1d(int x, int y) {
+int convert_2d_to_1d(int x, int y) {
   return x * 28 + y;
 }
 
-void count_connected_components(int new_feature_size, int old_feature_size, uint8_t* new_features, uint8_t* old_features) {
-  bool** arr = new bool[28][28];
+void find_connected_component(bool** arr, int x, int y) {
+  int xdir[4] = {0, -1, 0, 1};
+  int ydir[4] = {-1, 0, 1, 0};
+
+  arr[x][y] = 1;
+
+  for (int i = 0; i < 4; i++) {
+    int x2 = x + xdir[i];
+    int y2 = y + ydir[i];
+    if (x2 > 0 && x2 < 28 && y2 > 0 && y2 < 28 && !arr[x2][y2]) {
+      find_connected_component(arr, x2, y2);
+    }
+  }
+}
+
+int count_connected_components(uint8_t* old_features) {
+  bool** arr = new bool*[28];
+  for (int i = 0; i < 28; i++) {
+    arr[i] = new bool[28];
+  }
   int connected_components = 0;
 
+  // Convert grayscale image to black and white boolean matrix
+  for (int x = 0; x < 28; x++) {
+    for (int y = 0; y < 28; y++) {
+      arr[x][y] = old_features[convert_2d_to_1d(x, y)] >= 64;
+    }
+  }
   for (int x = 0; x < 28; x++) {
     for (int y = 0; y < 28; y++) {
       if (!arr[x][y]) {
-        //
+        connected_components++;
       }
     }
   }
 
-  delete arr;
+  for (int i = 0; i < 28; i++) {
+    delete[] arr[i];
+  }
+  delete[] arr;
+
+  return connected_components;
 }
 
 Dataset* preprocess_data(Dataset* data) {
+  int scale = 2;
+
   Dataset* ds = new Dataset();
   ds->train_size = data->train_size;
   ds->test_size = data->test_size;
-  ds->nFeatures = data->nFeatures * 2;
+  ds->nFeatures = data->nFeatures * scale + 1;
   ds->nClasses = data->nClasses;
 
   ds->train_set = new uint8_t*[ds->train_size];
   for(int i = 0; i < ds->train_size; i++) {
     ds->train_set[i] = new uint8_t[ds->nFeatures];
-    double_features(ds->nFeatures, data->nFeatures, ds->train_set[i], data->train_set[i]);
+    expand_features(scale, ds->nFeatures, data->nFeatures, ds->train_set[i], data->train_set[i]);
+    ds->train_set[i][data->nFeatures * scale] = count_connected_components(data->train_set[i]);
     delete data->train_set[i];
   }
   delete data->train_set;
@@ -138,7 +173,8 @@ Dataset* preprocess_data(Dataset* data) {
   ds->test_set = new uint8_t*[ds->test_size];
   for(int i = 0; i < ds->test_size; i++) {
     ds->test_set[i] = new uint8_t[ds->nFeatures];
-    double_features(ds->nFeatures, data->nFeatures, ds->test_set[i], data->test_set[i]);
+    expand_features(scale, ds->nFeatures, data->nFeatures, ds->test_set[i], data->test_set[i]);
+    ds->test_set[i][data->nFeatures * scale] = count_connected_components(data->test_set[i]);
     delete data->test_set[i];
   }
   delete data->test_set;
@@ -149,6 +185,32 @@ Dataset* preprocess_data(Dataset* data) {
 
   return ds;
 }
+/*
+Dataset* preprocess_data(Dataset* ds) {
+  int num_features = 2 * ds->nFeatures + 1;
+
+  for (int i = 0; i < ds->train_size; i++) {
+    uint8_t* temp = new uint8_t[num_features];
+    double_features(ds->nFeatures * 2, ds->nFeatures, temp, ds->train_set[i]);
+    delete ds->train_set[i];
+    ds->train_set[i] = temp;
+
+    //ds->train_set[i][ds->nFeatures * 2] = count_connected_components(ds->train_set[i]);
+  }
+
+  for (int i = 0; i < ds->test_size; i++) {
+    uint8_t* temp = new uint8_t[num_features];
+    double_features(ds->nFeatures * 2, ds->nFeatures, temp, ds->test_set[i]);
+    delete ds->test_set[i];
+    ds->test_set[i] = temp;
+
+    //ds->test_set[i][ds->nFeatures * 2] = count_connected_components(ds->test_set[i]);
+
+  }
+
+  ds->nFeatures = num_features;
+  return ds;
+}*/
 
 double* generate_weight_vector(int size) {
   double* w = new double[size];
@@ -216,8 +278,6 @@ __global__ void cuda_compute_probabilities(double* probabilities, double* weight
 
 // Call with <<<1,1>>>
 __global__ void cuda_find_max(int len, double* array, double* max, double* total) {
-
-
   double tmp_max = DBL_MIN;
   double tmp_total = 0;
   for (int i = 0; i < len; i++) {
@@ -237,21 +297,21 @@ __global__ void cuda_find_max(int len, double* array, double* max, double* total
 
 __global__ void cuda_update_weights(int num_features, double* weight_vector, uint8_t* features, uint8_t label,
     double* probabilities, double* max, double* total) {
-  int offset = blockIdx.x * num_features + threadIdx.x;
   double probability = probabilities[blockIdx.x];
 
   probability /= *total;
 
-  double y = (blockIdx.x == label) ? 1 : 0;
-  weight_vector[offset] += (y - probability) * features[threadIdx.x];
+  for (int i = threadIdx.x; i < num_features; i += blockDim.x) {
+    int offset = blockIdx.x * num_features + i;
+    
+    double y = (blockIdx.x == label) ? 1 : 0;
+    weight_vector[offset] += (y - probability) * features[i];
+  }
 }
-
 
 int greatest_pow2(int n) {
   return (int)pow(2, (int)log2((float)n));
-
 }
-
 
 double test(Dataset*, double**);
 
@@ -298,10 +358,10 @@ double** train(Dataset* ds) {
 
   for (int i = 0; i < ds->train_size; i++) {
     cuda_compute_probabilities<<<ds->nClasses, powerof2, shared_mem_size>>>(probabilities, d_weight_vectors, &d_train_set[i * ds->nFeatures], ds->nFeatures);
-    cuda_find_max<<<1, 1>>>(ds->nClasses, probabilities, max, total);
-    cuda_update_weights<<<ds->nClasses, ds->nFeatures>>>(ds->nFeatures, d_weight_vectors, &d_train_set[i * ds->nFeatures],
+    cuda_find_max<<<1,1>>>(ds->nClasses, probabilities, max, total);
+    cuda_update_weights<<<ds->nClasses, min(1024, ds->nFeatures)>>>(ds->nFeatures, d_weight_vectors, &d_train_set[i * ds->nFeatures],
       ds->train_labels[i], probabilities, max, total);
-  }
+ }
 
   cudaEventRecord(stop);
 
@@ -336,7 +396,7 @@ int main(int argc, char *argv[]) {
   std::srand(std::time(nullptr));
 
   Dataset* ds = load_data();
-
+ 
   double** weight_vectors = train(ds);
   printf("%f\n", test(ds, weight_vectors));
 }
