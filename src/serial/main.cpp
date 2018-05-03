@@ -96,23 +96,81 @@ Dataset* load_data() {
   return ds;
 }
 
-void double_features(int new_feature_size, int old_feature_size, uint8_t* new_features, uint8_t* old_features) {
+int convert_2d_to_1d(int x, int y) {
+  return x * 28 + y;
+}
+
+void find_connected_component(bool** arr, int x, int y) {
+  int xdir[4] = {0, -1, 0, 1};
+  int ydir[4] = {-1, 0, 1, 0};
+
+  arr[x][y] = 1;
+
+  for (int i = 0; i < 4; i++) {
+    int x2 = x + xdir[i];
+    int y2 = y + ydir[i];
+    if (x2 >= 0 && x2 < 28 && y2 >= 0 && y2 < 28 && !arr[x2][y2]) {
+      find_connected_component(arr, x2, y2);
+    }
+  }
+}
+
+int count_connected_components(uint8_t* old_features) {
+  //bool** arr = new bool[28][28];
+  bool** arr = new bool*[28];
+  for (int i = 0; i < 28; i++) {
+    arr[i] = new bool[28];
+  }
+  int connected_components = 0;
+
+  // Convert grayscale image to black and white boolean matrix
+  for (int x = 0; x < 28; x++) {
+    for (int y = 0; y < 28; y++) {
+      arr[x][y] = old_features[convert_2d_to_1d(x, y)] > 128; // False if white
+    }
+  }
+
+  for (int x = 0; x < 28; x++) {
+    for (int y = 0; y < 28; y++) {
+      if (!arr[x][y]) {
+        find_connected_component(arr, x, y);
+        connected_components++;
+      }
+    }
+  }
+
+  for (int i = 0; i < 28; i++) {
+    delete[] arr[i];
+  }
+  delete[] arr;
+
+  //printf("%d connected_components\n", connected_components);
+  return connected_components;
+}
+
+
+void expand_features(int factor, int new_feature_size, int old_feature_size, uint8_t* new_features, uint8_t* old_features) {
   for (int i = 0; i < old_feature_size; i++) {
-    new_features[i] = new_features[i + old_feature_size] = old_features[i];
+    for (int j = 0; j < factor; j++) {
+      new_features[i * factor + j] = old_features[i] > 128;
+    }
   }
 }
 
 Dataset* preprocess_data(Dataset* data) {
+  int scale = 1;
+
   Dataset* ds = new Dataset();
   ds->train_size = data->train_size;
   ds->test_size = data->test_size;
-  ds->nFeatures = data->nFeatures * 2;
+  ds->nFeatures = data->nFeatures * scale + 1;
   ds->nClasses = data->nClasses;
 
   ds->train_set = new uint8_t*[ds->train_size];
   for(int i = 0; i < ds->train_size; i++) {
     ds->train_set[i] = new uint8_t[ds->nFeatures];
-    double_features(ds->nFeatures, data->nFeatures, ds->train_set[i], data->train_set[i]);
+    expand_features(scale, ds->nFeatures, data->nFeatures, ds->train_set[i], data->train_set[i]);
+    ds->train_set[i][data->nFeatures * scale] = count_connected_components(data->train_set[i]);
     delete data->train_set[i];
   }
   delete data->train_set;
@@ -122,14 +180,15 @@ Dataset* preprocess_data(Dataset* data) {
   ds->test_set = new uint8_t*[ds->test_size];
   for(int i = 0; i < ds->test_size; i++) {
     ds->test_set[i] = new uint8_t[ds->nFeatures];
-    double_features(ds->nFeatures, data->nFeatures, ds->test_set[i], data->test_set[i]);
+    expand_features(scale, ds->nFeatures, data->nFeatures, ds->test_set[i], data->test_set[i]);
+    ds->test_set[i][data->nFeatures * scale] = count_connected_components(data->test_set[i]);
     delete data->test_set[i];
   }
   delete data->test_set;
 
   ds->test_labels = data->test_labels;
 
-  delete data;
+  //delete data;
 
   return ds;
 }
@@ -221,6 +280,7 @@ double** train(Dataset* ds) {
   // Continue through entire dataset.
   for (int i = 0; i < ds->train_size; i++) {
     //uint8_t prediction = predict(10, 784, weight_vectors, train_set[i]);
+    //int index = i % ds->train_size;
     update_weights(ds, weight_vectors, ds->train_set[i], ds->train_labels[i]);
   }
 
@@ -250,6 +310,7 @@ int main(int argc, char *argv[]) {
   std::srand(std::time(nullptr));
 
   Dataset* ds = load_data();
+  //printf("%d\n", ds->nFeatures);
 
   double** weight_vectors = train(ds);
   printf("%f\n", test(ds, weight_vectors));
