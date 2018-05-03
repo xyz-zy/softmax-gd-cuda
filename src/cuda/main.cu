@@ -115,7 +115,7 @@ void find_connected_component(bool** arr, int x, int y) {
   for (int i = 0; i < 4; i++) {
     int x2 = x + xdir[i];
     int y2 = y + ydir[i];
-    if (x2 > 0 && x2 < 28 && y2 > 0 && y2 < 28 && !arr[x2][y2]) {
+    if (x2 >= 0 && x2 < 28 && y2 >= 0 && y2 < 28 && !arr[x2][y2]) {
       find_connected_component(arr, x2, y2);
     }
   }
