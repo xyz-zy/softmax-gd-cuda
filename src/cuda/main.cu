@@ -356,7 +356,7 @@ double** train(Dataset* ds) {
   // Continue through entire dataset.
   int powerof2 = min(1024, greatest_pow2(ds->nFeatures));//(int)pow(2, (int)log2((float)ds-> n));
   int shared_mem_size = powerof2 * sizeof(double);
-printf("feats: %d, pow2: %d, mem: %d\n", ds->nFeatures, powerof2, shared_mem_size);
+
   for (int i = 0; i < ds->train_size; i++) {
     cuda_compute_probabilities<<<ds->nClasses, powerof2, shared_mem_size>>>(probabilities, d_weight_vectors, &d_train_set[i * ds->nFeatures], ds->nFeatures);
     cuda_find_max<<<1,1>>>(ds->nClasses, probabilities, max, total);
