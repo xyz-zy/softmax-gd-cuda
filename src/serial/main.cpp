@@ -100,19 +100,23 @@ int convert_2d_to_1d(int x, int y) {
   return x * 28 + y;
 }
 
-void find_connected_component(bool** arr, int x, int y) {
+int find_connected_component(bool** arr, int x, int y) {
   int xdir[4] = {0, -1, 0, 1};
   int ydir[4] = {-1, 0, 1, 0};
 
   arr[x][y] = 1;
 
+  int size = 1;
+
   for (int i = 0; i < 4; i++) {
     int x2 = x + xdir[i];
     int y2 = y + ydir[i];
     if (x2 >= 0 && x2 < 28 && y2 >= 0 && y2 < 28 && !arr[x2][y2]) {
-      find_connected_component(arr, x2, y2);
+      size += find_connected_component(arr, x2, y2);
     }
   }
+
+  return size;
 }
 
 int count_connected_components(uint8_t* old_features) {
@@ -133,8 +137,10 @@ int count_connected_components(uint8_t* old_features) {
   for (int x = 0; x < 28; x++) {
     for (int y = 0; y < 28; y++) {
       if (!arr[x][y]) {
-        find_connected_component(arr, x, y);
-        connected_components++;
+        int size = find_connected_component(arr, x, y);
+        if (size >= 10) {
+          connected_components++;
+        }
       }
     }
   }
@@ -152,7 +158,7 @@ int count_connected_components(uint8_t* old_features) {
 void expand_features(int factor, int new_feature_size, int old_feature_size, uint8_t* new_features, uint8_t* old_features) {
   for (int i = 0; i < old_feature_size; i++) {
     for (int j = 0; j < factor; j++) {
-      new_features[i * factor + j] = old_features[i] > 128;
+      new_features[i * factor + j] = old_features[i] > 0;
     }
   }
 }
@@ -171,6 +177,7 @@ Dataset* preprocess_data(Dataset* data) {
     ds->train_set[i] = new uint8_t[ds->nFeatures];
     expand_features(scale, ds->nFeatures, data->nFeatures, ds->train_set[i], data->train_set[i]);
     ds->train_set[i][data->nFeatures * scale] = count_connected_components(data->train_set[i]);
+    //printf("%d ", ds->train_set[i][data->nFeatures * scale]);
     delete data->train_set[i];
   }
   delete data->train_set;
