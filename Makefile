@@ -1,5 +1,5 @@
 CFLAGS = -g -O3 -Wall -std=c++11
-CUDAFLAGS = -std=c++11 -arch=sm_61 -rdc=true -lcudadevrt
+CUDAFLAGS = -g -O3 -std=c++11 -arch=sm_61 -rdc=true -lcudadevrt
 
 default: serial cuda 
 
