@@ -151,7 +151,7 @@ int count_connected_components(uint8_t* old_features) {
 }
 
 Dataset* preprocess_data(Dataset* data) {
-  int scale = 2;
+  int scale = 1;
 
   Dataset* ds = new Dataset();
   ds->train_size = data->train_size;
@@ -256,17 +256,18 @@ __global__ void cuda_compute_probabilities(double* probabilities, double* weight
   extern __shared__ double temp[];
   int offset = num_features * blockIdx.x;
   int tid = threadIdx.x;
-  int val = weight_vectors[offset + tid] * features[tid];
-  if (blockDim.x + tid < num_features) {
-    val += weight_vectors[offset + tid + blockDim.x] * features[tid + blockDim.x];
+  int val = 0;
+
+  for (int i = tid; i < num_features; i += blockDim.x) {
+    val += weight_vectors[offset + i] * features[i];
   }
+
   temp[tid] = val;
   __syncthreads();
 
   for (int step = blockDim.x/2; step > 0; step >>= 1) {
     if (tid < step) {
       temp[tid] += temp[tid + step];
-      temp[tid + step] = -1;
     } 
     __syncthreads();
   }
@@ -353,9 +354,9 @@ double** train(Dataset* ds) {
   // 1. Calculate gradient.
   // 2. Update weight vector.
   // Continue through entire dataset.
-  int powerof2 = greatest_pow2(ds->nFeatures);//(int)pow(2, (int)log2((float)ds-> n));
+  int powerof2 = min(1024, greatest_pow2(ds->nFeatures));//(int)pow(2, (int)log2((float)ds-> n));
   int shared_mem_size = powerof2 * sizeof(double);
-
+printf("feats: %d, pow2: %d, mem: %d\n", ds->nFeatures, powerof2, shared_mem_size);
   for (int i = 0; i < ds->train_size; i++) {
     cuda_compute_probabilities<<<ds->nClasses, powerof2, shared_mem_size>>>(probabilities, d_weight_vectors, &d_train_set[i * ds->nFeatures], ds->nFeatures);
     cuda_find_max<<<1,1>>>(ds->nClasses, probabilities, max, total);
@@ -374,7 +375,7 @@ double** train(Dataset* ds) {
   float duration;
   cudaDeviceSynchronize();
   cudaEventElapsedTime(&duration, start, stop);
-  printf("train duration: %f ms\n", duration);
+  printf("%f\n", duration);
 
   return weight_vectors;
 }
