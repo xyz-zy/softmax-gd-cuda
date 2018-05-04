@@ -90,7 +90,7 @@ Dataset* load_data() {
   }  
 
   input_file.close();
-  ds = preprocess_data(ds);
+  //ds = preprocess_data(ds);
   return ds;
 }
 
@@ -121,6 +121,7 @@ void find_connected_component(bool** arr, int x, int y) {
   }
 }
 
+
 int count_connected_components(uint8_t* old_features) {
   bool** arr = new bool*[28];
   for (int i = 0; i < 28; i++) {
@@ -148,6 +149,228 @@ int count_connected_components(uint8_t* old_features) {
   delete[] arr;
 
   return connected_components;
+}
+
+
+__device__
+int d_convert_2d_to_1d(int x, int y) {
+  return x * 28 + y;
+}
+
+// __device__
+// void d_find_connected_component(bool** arr, int x, int y) {
+//   int xdir[4] = {0, -1, 0, 1};
+//   int ydir[4] = {-1, 0, 1, 0};
+
+//   arr[x][y] = 1;
+
+//   for (int i = 0; i < 4; i++) {
+//     int x2 = x + xdir[i];
+//     int y2 = y + ydir[i];
+//     if (x2 >= 0 && x2 < 28 && y2 >= 0 && y2 < 28 && !arr[x2][y2]) {
+//       find_connected_component(arr, x2, y2);
+//     }
+//   }
+// }
+
+// __device__
+// int d_count_connected_components(uint8_t* old_features) {
+//   bool** arr = new bool*[28];
+//   for (int i = 0; i < 28; i++) {
+//     arr[i] = new bool[28];
+//   }
+//   int connected_components = 0;
+
+//   // Convert grayscale image to black and white boolean matrix
+//   for (int x = 0; x < 28; x++) {
+//     for (int y = 0; y < 28; y++) {
+//       arr[x][y] = old_features[convert_2d_to_1d(x, y)] >= 64;
+//     }
+//   }
+//   for (int x = 0; x < 28; x++) {
+//     for (int y = 0; y < 28; y++) {
+//       if (!arr[x][y]) {
+//         connected_components++;
+//       }
+//     }
+//   }
+
+//   for (int i = 0; i < 28; i++) {
+//     delete[] arr[i];
+//   }
+//   delete[] arr;
+
+//   return connected_components;
+// }
+
+// __global__
+// void count_cc(uint8_t* new_features, uint8_t* old_features) {
+
+// }
+
+__global__
+void d_apply_stencil(int new_nFeatures, uint8_t* new_features, int old_nFeatures, uint8_t* old_features) {
+  int new_offset = blockIdx.x * new_nFeatures;
+  int old_offset = blockIdx.x * old_nFeatures;
+  int tid = threadIdx.x;
+
+  int x = tid / 28;
+  int y = tid % 28;
+
+  int xdir[4] = {0, -1, 0, 1};
+  int ydir[4] = {-1, 0, 1, 0};
+
+  uint8_t average = 0;
+  int count = 0;
+  for (int i = 0; i < 4; i++) {
+    int x2 = x + xdir[i];
+    int y2 = y + ydir[i];
+    if (x2 >= 0 && x2 < 28 && y2 >= 0 && y2 < 28) {
+      int index = d_convert_2d_to_1d(x2, y2);
+      average += old_features[index + old_offset];
+      count++;
+    }
+  }
+  average /= count;
+  new_features[tid + new_offset] = average;
+}
+
+void apply_stencil(uint8_t* new_features, uint8_t* old_features) {
+  int xdir[4] = {0, -1, 0, 1};
+  int ydir[4] = {-1, 0, 1, 0};
+
+  // for (int x = 0; x < 28; x++) {
+  //   for (int y = 0; y < 28; y++) {
+  for(int j= 0; j < 784; j++) {
+      int x = j / 28;
+      int y = j % 28;
+      uint8_t average = 0;
+      int count = 0;
+      for (int i = 0; i < 4; i++) {
+        int x2 = x + xdir[i];
+        int y2 = y + ydir[i];
+        if (x2 >= 0 && x2 < 28 && y2 >= 0 && y2 < 28) {
+          int index = convert_2d_to_1d(x2, y2);
+          average += old_features[index];
+          count++;
+        }
+      }
+      average /= count;
+      new_features[convert_2d_to_1d(x, y)] = average;
+  }
+  //   }
+  // }
+}
+
+void preprocess_data2(Dataset* data) {
+  Dataset* ds = new Dataset();
+  ds->train_size = data->train_size;
+  ds->test_size = data->test_size;
+  ds->nFeatures = data->nFeatures;
+  ds->nClasses = data->nClasses;
+
+  ds->train_labels = data->train_labels;
+  ds->test_labels = data->test_labels;
+
+
+  // Malloc dataset arrays on GPU
+  uint8_t* d_old_train_set;
+  cudaMalloc(&d_old_train_set, ds->train_size * data->nFeatures * sizeof(uint8_t));
+  for (int i = 0; i < ds->train_size; i++) {
+    int offset = i * data->nFeatures;
+    cudaMemcpy(d_old_train_set + offset, data->train_set[i],
+        data->nFeatures * sizeof(uint8_t), cudaMemcpyHostToDevice);
+  }
+
+
+  uint8_t* d_old_test_set;
+  cudaMalloc(&d_old_test_set, ds->test_size * data->nFeatures * sizeof(uint8_t));
+  for (int i = 0; i < ds->test_size; i++) {
+    int offset = i * data->nFeatures;
+    cudaMemcpy(d_old_test_set + offset, data->test_set[i],
+        data->nFeatures * sizeof(uint8_t), cudaMemcpyHostToDevice);
+  }
+
+  uint8_t* d_new_train_set;
+  cudaMalloc(&d_new_train_set, ds->train_size * ds->nFeatures * sizeof(uint8_t));
+  //cudaMemset(d_new_train_set, 0, ds->train_size * ds->nFeatures * sizeof(uint8_t));
+
+  uint8_t* d_new_test_set;
+  cudaMalloc(&d_new_test_set, ds->test_size * ds->nFeatures * sizeof(uint8_t));
+  //cudaMemset(d_new_test_set, 0, ds->test_size * ds->nFeatures * sizeof(uint8_t));
+
+  //int MAX_BLOCK_SIZE = 1024;
+
+  cudaEvent_t start, stop;
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
+  cudaEventRecord(start);
+
+  d_apply_stencil<<<ds->train_size, ds->nFeatures>>>(ds->nFeatures, d_new_train_set, data->nFeatures, d_old_train_set);
+  cudaError_t error = cudaGetLastError();
+  if(error != cudaSuccess)
+  {
+    // print the CUDA error message and exit
+    printf("CUDA error: %s\n", cudaGetErrorString(error));
+    exit(-1);
+  }
+  d_apply_stencil<<<ds->test_size, ds->nFeatures>>>(ds->nFeatures, d_new_test_set, data->nFeatures, d_old_test_set);
+  error = cudaGetLastError();
+  if(error != cudaSuccess)
+  {
+    // print the CUDA error message and exit
+    printf("CUDA error: %s\n", cudaGetErrorString(error));
+    exit(-1);
+  }
+
+  cudaEventRecord(stop);
+  
+  ds->train_set = new uint8_t*[ds->train_size];
+  for(int i = 0; i < ds->train_size; i++) {
+    ds->train_set[i] = new uint8_t[ds->nFeatures];
+  }
+
+  ds->test_set = new uint8_t*[ds->test_size];
+  for(int i = 0; i < ds->test_size; i++) {
+    ds->test_set[i] = new uint8_t[ds->nFeatures];
+  }
+
+
+  uint8_t** serial_train_set = new uint8_t*[ds->train_size];
+  for(int i = 0; i < ds->train_size; i++) {
+    serial_train_set[i] = new uint8_t[ds->nFeatures];
+    apply_stencil(serial_train_set[i], data->train_set[i]);
+  }
+
+  uint8_t** serial_test_set = new uint8_t*[ds->test_size];
+  for(int i = 0; i < ds->test_size; i++) {
+    serial_test_set[i] = new uint8_t[ds->nFeatures];
+    apply_stencil(serial_test_set[i], data->test_set[i]);
+  }
+
+  // Copy data back lol
+  for (int i = 0; i < ds->train_size; i++) {
+    int offset = i * ds->nFeatures;
+    cudaMemcpy(ds->train_set[i], d_new_train_set + offset,
+      ds->nFeatures * sizeof(double), cudaMemcpyDeviceToHost);
+
+    for(int j = 0; j < data->nFeatures; j++) {
+      if (ds->train_set[i][j] != serial_train_set[i][j]) {
+        printf("%d and %d not equal\n", ds->train_set[i][j], serial_train_set[i][j]);
+      }
+    }
+  }
+
+  for (int i = 0; i < ds->test_size; i++) {
+    int offset = i * ds->nFeatures;
+    cudaMemcpy(ds->test_set[i], d_new_test_set + offset,
+      ds->nFeatures * sizeof(double), cudaMemcpyDeviceToHost);
+  }
+
+  float duration;
+  cudaDeviceSynchronize();
+  cudaEventElapsedTime(&duration, start, stop);
+  printf("%fms\n", duration);
 }
 
 Dataset* preprocess_data(Dataset* data) {
@@ -185,32 +408,6 @@ Dataset* preprocess_data(Dataset* data) {
 
   return ds;
 }
-/*
-Dataset* preprocess_data(Dataset* ds) {
-  int num_features = 2 * ds->nFeatures + 1;
-
-  for (int i = 0; i < ds->train_size; i++) {
-    uint8_t* temp = new uint8_t[num_features];
-    double_features(ds->nFeatures * 2, ds->nFeatures, temp, ds->train_set[i]);
-    delete ds->train_set[i];
-    ds->train_set[i] = temp;
-
-    //ds->train_set[i][ds->nFeatures * 2] = count_connected_components(ds->train_set[i]);
-  }
-
-  for (int i = 0; i < ds->test_size; i++) {
-    uint8_t* temp = new uint8_t[num_features];
-    double_features(ds->nFeatures * 2, ds->nFeatures, temp, ds->test_set[i]);
-    delete ds->test_set[i];
-    ds->test_set[i] = temp;
-
-    //ds->test_set[i][ds->nFeatures * 2] = count_connected_components(ds->test_set[i]);
-
-  }
-
-  ds->nFeatures = num_features;
-  return ds;
-}*/
 
 double* generate_weight_vector(int size) {
   double* w = new double[size];
@@ -397,7 +594,10 @@ int main(int argc, char *argv[]) {
   std::srand(std::time(nullptr));
 
   Dataset* ds = load_data();
+
+  preprocess_data2(ds);
  
-  double** weight_vectors = train(ds);
-  printf("%f\n", test(ds, weight_vectors));
+  // ds = preprocess_data(ds);
+  // double** weight_vectors = train(ds);
+  // printf("%f\n", test(ds, weight_vectors));
 }

@@ -91,7 +91,7 @@ Dataset* load_data() {
 
   input_file.close();
 
-  ds = preprocess_data(ds);
+  //ds = preprocess_data(ds);
 
   return ds;
 }
@@ -99,6 +99,10 @@ Dataset* load_data() {
 int convert_2d_to_1d(int x, int y) {
   return x * 28 + y;
 }
+
+
+int xdir[4] = {0, -1, 0, 1};
+int ydir[4] = {-1, 0, 1, 0};
 
 int find_connected_component(bool** arr, int x, int y) {
   int xdir[4] = {0, -1, 0, 1};
@@ -154,6 +158,71 @@ int count_connected_components(uint8_t* old_features) {
   return connected_components;
 }
 
+
+void apply_stencil(uint8_t* new_features, uint8_t* old_features) {
+  for (int x = 0; x < 28; x++) {
+    for (int y = 0; y < 28; y++) {
+      uint8_t average = 0;
+      int count = 0;
+      for (int i = 0; i < 4; i++) {
+        int x2 = x + xdir[i];
+        int y2 = y + ydir[i];
+        if (x2 >= 0 && x2 < 28 && y2 >= 0 && y2 < 28) {
+          int index = convert_2d_to_1d(x2, y2);
+          average += old_features[index];
+          count++;
+        }
+      }
+      average /= count;
+      new_features[convert_2d_to_1d(x, y)] = average;
+    }
+  }
+}
+
+void preprocess_data2(Dataset* data) {
+  Dataset* ds = new Dataset();
+  ds->train_size = data->train_size;
+  ds->test_size = data->test_size;
+  ds->nFeatures = data->nFeatures + 1;
+  ds->nClasses = data->nClasses;
+
+  ds->train_labels = data->train_labels;
+  ds->test_labels = data->test_labels;
+
+
+  auto start = std::chrono::high_resolution_clock::now();
+  
+  ds->train_set = new uint8_t*[ds->train_size];
+  for(int i = 0; i < ds->train_size; i++) {
+    ds->train_set[i] = new uint8_t[ds->nFeatures];
+    apply_stencil(ds->train_set[i], data->train_set[i]);
+    //printf("%d ", ds->train_set[i][data->nFeatures * scale]);
+    //delete data->train_set[i];
+  }
+
+  // for (int i = 0; i < ds->train_size; i++) {
+  //   ds->train_set[i][ds->nFeatures - 1] = count_connected_components(data->train_set[i]);
+  // }
+  //delete data->train_set;
+
+
+  ds->test_set = new uint8_t*[ds->test_size];
+  for(int i = 0; i < ds->test_size; i++) {
+    ds->test_set[i] = new uint8_t[ds->nFeatures];
+    apply_stencil(ds->test_set[i], data->test_set[i]);
+    //delete data->test_set[i];
+  }
+  //delete data->test_set;
+
+  // for (int i = 0; i < ds->test_size; i++) {
+  //   ds->test_set[i][ds->nFeatures -1] = count_connected_components(data->test_set[i]);
+  // }
+
+
+  auto elapsed = std::chrono::high_resolution_clock::now() - start;
+  long long milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+  printf("%llu ms\n", milliseconds);
+}
 
 void expand_features(int factor, int new_feature_size, int old_feature_size, uint8_t* new_features, uint8_t* old_features) {
   for (int i = 0; i < old_feature_size; i++) {
@@ -291,7 +360,6 @@ double** train(Dataset* ds) {
     update_weights(ds, weight_vectors, ds->train_set[i], ds->train_labels[i]);
   }
 
-
   auto elapsed = std::chrono::high_resolution_clock::now() - start;
   long long milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
   printf("%llu ms\n", milliseconds);
@@ -317,8 +385,12 @@ int main(int argc, char *argv[]) {
   std::srand(std::time(nullptr));
 
   Dataset* ds = load_data();
-  //printf("%d\n", ds->nFeatures);
+  preprocess_data2(ds);
 
-  double** weight_vectors = train(ds);
-  printf("%f\n", test(ds, weight_vectors));
+  // ds = preprocess_data(ds);
+
+  // //printf("%d\n", ds->nFeatures);
+
+  // double** weight_vectors = train(ds);
+  // printf("%f\n", test(ds, weight_vectors));
 }
