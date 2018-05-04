@@ -235,33 +235,6 @@ void d_apply_stencil(int new_nFeatures, uint8_t* new_features, int old_nFeatures
   new_features[tid + new_offset] = average;
 }
 
-void apply_stencil(uint8_t* new_features, uint8_t* old_features) {
-  int xdir[4] = {0, -1, 0, 1};
-  int ydir[4] = {-1, 0, 1, 0};
-
-  // for (int x = 0; x < 28; x++) {
-  //   for (int y = 0; y < 28; y++) {
-  for(int j= 0; j < 784; j++) {
-      int x = j / 28;
-      int y = j % 28;
-      uint8_t average = 0;
-      int count = 0;
-      for (int i = 0; i < 4; i++) {
-        int x2 = x + xdir[i];
-        int y2 = y + ydir[i];
-        if (x2 >= 0 && x2 < 28 && y2 >= 0 && y2 < 28) {
-          int index = convert_2d_to_1d(x2, y2);
-          average += old_features[index];
-          count++;
-        }
-      }
-      average /= count;
-      new_features[convert_2d_to_1d(x, y)] = average;
-  }
-  //   }
-  // }
-}
-
 void preprocess_data2(Dataset* data) {
   Dataset* ds = new Dataset();
   ds->train_size = data->train_size;
@@ -335,30 +308,11 @@ void preprocess_data2(Dataset* data) {
     ds->test_set[i] = new uint8_t[ds->nFeatures];
   }
 
-
-  uint8_t** serial_train_set = new uint8_t*[ds->train_size];
-  for(int i = 0; i < ds->train_size; i++) {
-    serial_train_set[i] = new uint8_t[ds->nFeatures];
-    apply_stencil(serial_train_set[i], data->train_set[i]);
-  }
-
-  uint8_t** serial_test_set = new uint8_t*[ds->test_size];
-  for(int i = 0; i < ds->test_size; i++) {
-    serial_test_set[i] = new uint8_t[ds->nFeatures];
-    apply_stencil(serial_test_set[i], data->test_set[i]);
-  }
-
   // Copy data back lol
   for (int i = 0; i < ds->train_size; i++) {
     int offset = i * ds->nFeatures;
     cudaMemcpy(ds->train_set[i], d_new_train_set + offset,
       ds->nFeatures * sizeof(double), cudaMemcpyDeviceToHost);
-
-    for(int j = 0; j < data->nFeatures; j++) {
-      if (ds->train_set[i][j] != serial_train_set[i][j]) {
-        printf("%d and %d not equal\n", ds->train_set[i][j], serial_train_set[i][j]);
-      }
-    }
   }
 
   for (int i = 0; i < ds->test_size; i++) {
