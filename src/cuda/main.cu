@@ -324,7 +324,7 @@ void preprocess_data2(Dataset* data) {
   float duration;
   cudaDeviceSynchronize();
   cudaEventElapsedTime(&duration, start, stop);
-  printf("%fms\n", duration);
+  printf("%f\n", duration);
 }
 
 Dataset* preprocess_data(Dataset* data) {
